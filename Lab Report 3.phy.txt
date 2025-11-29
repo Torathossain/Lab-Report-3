@@ -1,0 +1,125 @@
+import pandas as pd
+import string
+import re
+import nltk
+from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.model_selection import train_test_split
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.metrics import accuracy_score, confusion_matrix, precision_score, recall_score, f1_score, classification_report
+
+# --- Configuration ---
+FILE_NAME = 'news_data.csv'
+TEST_SIZE_RATIO = 0.20
+RANDOM_SEED = 42
+
+# Ensure you have the necessary NLTK components downloaded (uncomment to run once)
+# try:
+#     nltk.data.find('corpora/stopwords')
+#     nltk.data.find('corpora/wordnet')
+# except nltk.downloader.DownloadError:
+#     nltk.download('stopwords')
+#     nltk.download('wordnet')
+
+# Initialize NLTK tools
+stop_words = set(stopwords.words('english'))
+lemmatizer = WordNetLemmatizer()
+
+# --- 1. Data Loading and Preprocessing ---
+
+print("--- 1. Data Loading and Preprocessing ---")
+
+try:
+    # Load the custom dataset
+    df = pd.read_csv(FILE_NAME)
+    # Ensure the required columns exist
+    if 'text' not in df.columns or 'label' not in df.columns:
+        raise ValueError("CSV must contain 'text' and 'label' columns.")
+    
+    print(f"Total Texts Loaded: {len(df)}")
+    
+except FileNotFoundError:
+    print(f"Error: The file '{FILE_NAME}' was not found.")
+    print("ACTION REQUIRED: Please create a CSV file with your 100 news texts (50 sports, 50 politics) and save it as 'news_data.csv'.")
+    exit()
+except ValueError as e:
+    print(f"Data validation error: {e}")
+    exit()
+
+def clean_text(text):
+    """
+    Performs text cleaning: lowercase conversion, punctuation/number removal, 
+    extra space removal, stopword filtering, and lemmatization.
+    """
+    # Convert to lowercase
+    text = text.lower()
+    
+    # Remove punctuation
+    text = text.translate(str.maketrans('', '', string.punctuation))
+    
+    # Remove numbers
+    text = re.sub(r'\d+', '', text)
+    
+    # Remove extra spaces
+    text = text.strip()
+    
+    # Tokenize, remove stopwords, and apply lemmatization
+    tokens = text.split()
+    tokens = [word for word in tokens if word not in stop_words]
+    tokens = [lemmatizer.lemmatize(word) for word in tokens]
+    
+    return ' '.join(tokens)
+
+# Apply cleaning function to the text column
+df['cleaned_text'] = df['text'].apply(clean_text)
+print("Text cleaning (lowercase, punctuation/number removal, stopword removal, lemmatization) complete.")
+
+# --- 2. Feature Engineering and Split ---
+
+# Separate features (X) and target (y)
+X = df['cleaned_text']
+y = df['label']
+
+# Split data into training and testing sets (80:20 ratio)
+X_train_text, X_test_text, y_train, y_test = train_test_split(
+    X, y, test_size=TEST_SIZE_RATIO, random_state=RANDOM_SEED, stratify=y
+)
+print(f"Data split into 80:20 ratio. Train size: {len(X_train_text)}, Test size: {len(X_test_text)}")
+
+# Initialize and fit TF-IDF Vectorizer on TRAINING data only
+tfidf_vectorizer = TfidfVectorizer()
+X_train_features = tfidf_vectorizer.fit_transform(X_train_text)
+
+# Transform the test data using the fitted vectorizer
+X_test_features = tfidf_vectorizer.transform(X_test_text)
+print("TF-IDF Vectorization complete.")
+
+# --- 3. Modeling and Evaluation ---
+
+print("\n--- 3. Naïve Bayes Modeling and Evaluation ---")
+
+# Initialize the Multinomial Naive Bayes model (best suited for count/frequency data)
+model = MultinomialNB()
+
+# Train the model
+model.fit(X_train_features, y_train)
+
+# Make predictions on the test set
+y_pred = model.predict(X_test_features)
+
+# --- Evaluation Metrics ---
+accuracy = accuracy_score(y_test, y_pred)
+conf_matrix = confusion_matrix(y_test, y_pred)
+# Use 'weighted' average for summary metrics
+precision = precision_score(y_test, y_pred, average='weighted', zero_division=0)
+recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
+f1 = f1_score(y_test, y_pred, average='weighted', zero_division=0)
+
+# Store results for report
+results_df = pd.DataFrame({
+    'Metric': ['Accuracy', 'Precision', 'Recall', 'F1-Score'],
+    'Value': [accuracy, precision, recall, f1]
+})
+
+#
